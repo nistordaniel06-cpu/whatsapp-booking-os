@@ -1,0 +1,9 @@
+"use client";
+import {useState} from "react";
+import Link from "next/link";
+import {supabaseBrowser} from "@/lib/supabase-browser";
+export default function Login(){
+ const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);
+ async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabaseBrowser().auth.signInWithPassword({email,password});if(error)throw error;window.location.href="/pro";}catch(e){setMessage(e instanceof Error?e.message:"Autentificarea a eșuat")}finally{setBusy(false)}}
+ return <main className="min-h-screen bg-[#101114] text-white p-5 flex items-center justify-center"><form onSubmit={submit} className="bg-zinc-900 p-6 rounded-3xl w-full max-w-md space-y-4"><div className="text-yellow-400 font-bold">WHATSAPP BOOKING OS</div><h1 className="text-2xl font-bold">Autentificare PRO</h1><p className="text-zinc-400 text-sm">Accesul la datele reale necesită un cont aprobat și asociat salonului.</p><input type="email" required autoComplete="email" placeholder="Email" aria-label="Email" className="bg-zinc-800 p-3 rounded-xl w-full" value={email} onChange={e=>setEmail(e.target.value)}/><input type="password" required autoComplete="current-password" placeholder="Parolă" aria-label="Parolă" className="bg-zinc-800 p-3 rounded-xl w-full" value={password} onChange={e=>setPassword(e.target.value)}/><button disabled={busy} className="bg-yellow-400 text-black rounded-xl p-3 w-full font-bold disabled:opacity-50">{busy?"Se conectează...":"Intră în cont"}</button>{message&&<p role="alert" className="text-red-400 text-sm">{message}</p>}<Link href="/demo" className="text-zinc-400 text-sm block">Înapoi la simulator</Link></form></main>
+}
