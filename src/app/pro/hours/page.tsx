@@ -1,0 +1,16 @@
+"use client";
+import {useEffect,useState} from "react";
+import Link from "next/link";
+import {supabaseBrowser} from "@/lib/supabase-browser";
+type Staff={id:string;name:string;salon_id:string};
+type Hours={id:string;staff_id:string;weekday:number;starts_local:string;ends_local:string};
+const days=["Duminică","Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă"];
+export default function HoursPage(){
+ const [staff,setStaff]=useState<Staff[]>([]),[hours,setHours]=useState<Hours[]>([]),[staffId,setStaffId]=useState(""),[day,setDay]=useState("1"),[start,setStart]=useState("09:00"),[end,setEnd]=useState("18:00"),[msg,setMsg]=useState("");
+ async function load(){const db=supabaseBrowser();const [a,b]=await Promise.all([db.from("staff").select("id,name,salon_id"),db.from("working_hours").select("id,staff_id,weekday,starts_local,ends_local")]);if(a.error||b.error){setMsg(a.error?.message||b.error?.message||"Eroare");return}setStaff(a.data||[]);setHours(b.data||[]);setStaffId(x=>x||a.data?.[0]?.id||"")}
+ useEffect(()=>{supabaseBrowser().auth.getUser().then(({data})=>{if(!data.user){window.location.href="/login";return}void load()})},[]);
+ async function add(e:React.FormEvent){e.preventDefault();const s=staff.find(x=>x.id===staffId);if(!s)return;const {error}=await supabaseBrowser().from("working_hours").insert({salon_id:s.salon_id,staff_id:staffId,weekday:Number(day),starts_local:start,ends_local:end});setMsg(error?error.message:"Program salvat.");if(!error)await load()}
+ async function remove(id:string){const {error}=await supabaseBrowser().from("working_hours").delete().eq("id",id);setMsg(error?error.message:"Interval șters.");if(!error)await load()}
+ const field="bg-zinc-800 text-white rounded-xl p-3 w-full";
+ return <main className="min-h-screen bg-zinc-950 text-white p-5"><div className="max-w-xl mx-auto"><h1 className="text-2xl font-bold mb-2">Program de lucru</h1><p className="text-zinc-400 mb-5">Configurează intervalele reale pentru fiecare frizer. Zilele fără interval sunt indisponibile.</p><form onSubmit={add} className="space-y-3 bg-zinc-900 rounded-2xl p-4"><select className={field} aria-label="Frizer" value={staffId} onChange={e=>setStaffId(e.target.value)}>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><select className={field} aria-label="Zi" value={day} onChange={e=>setDay(e.target.value)}>{days.map((d,i)=><option key={d} value={i}>{d}</option>)}</select><div className="flex gap-2"><input aria-label="De la" type="time" className={field} value={start} onChange={e=>setStart(e.target.value)}/><input aria-label="Până la" type="time" className={field} value={end} onChange={e=>setEnd(e.target.value)}/></div><button className="bg-yellow-400 text-black rounded-xl p-3 w-full font-bold">Adaugă interval</button></form>{msg&&<p className="my-4 text-yellow-300">{msg}</p>}<div className="space-y-2 mt-6">{hours.filter(h=>h.staff_id===staffId).sort((a,b)=>a.weekday-b.weekday).map(h=><div key={h.id} className="flex justify-between bg-zinc-900 rounded-xl p-3"><span>{days[h.weekday]} · {h.starts_local.slice(0,5)}–{h.ends_local.slice(0,5)}</span><button className="text-red-400" onClick={()=>remove(h.id)}>Șterge</button></div>)}</div><Link href="/pro/live" className="text-yellow-400 block mt-6">← Calendar PRO</Link></div></main>
+}
