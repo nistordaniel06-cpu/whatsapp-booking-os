@@ -14,7 +14,7 @@ export function supabaseBookingRepo(db: SupabaseClient): BookingRepo {
   return {
     async getCatalog(salonId) {
       const [salon, services, staff, links] = await Promise.all([
-        db.from("salons").select("id,name,timezone,address,slot_step_minutes,min_notice_minutes,booking_horizon_days,cancel_notice_minutes").eq("id", salonId).single(),
+        db.from("salons").select("id,name,timezone,address,phone,slot_step_minutes,min_notice_minutes,booking_horizon_days,cancel_notice_minutes").eq("id", salonId).single(),
         db.from("services").select("id,name,duration_minutes,price_ron").eq("salon_id", salonId).eq("active", true).order("sort_order").order("name"),
         db.from("staff").select("id,name").eq("salon_id", salonId).eq("active", true).order("name"),
         db.from("staff_services").select("staff_id,service_id").eq("salon_id", salonId),
@@ -25,7 +25,7 @@ export function supabaseBookingRepo(db: SupabaseClient): BookingRepo {
       if (links.error) fail("staff_services", links.error);
       const s = salon.data;
       return {
-        salon: {id: s.id, name: s.name, timezone: s.timezone, address: s.address, slotStepMinutes: s.slot_step_minutes, minNoticeMinutes: s.min_notice_minutes, bookingHorizonDays: s.booking_horizon_days, cancelNoticeMinutes: s.cancel_notice_minutes},
+        salon: {id: s.id, name: s.name, timezone: s.timezone, address: s.address, phone: s.phone, slotStepMinutes: s.slot_step_minutes, minNoticeMinutes: s.min_notice_minutes, bookingHorizonDays: s.booking_horizon_days, cancelNoticeMinutes: s.cancel_notice_minutes},
         services: services.data.map(x => ({id: x.id, name: x.name, durationMinutes: x.duration_minutes, priceRon: Number(x.price_ron)})),
         staff: staff.data.map(x => {
           const ids = links.data.filter(l => l.staff_id === x.id).map(l => l.service_id);

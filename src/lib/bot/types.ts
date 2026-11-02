@@ -5,6 +5,7 @@ export type SalonInfo = {
   name: string;
   timezone: string;
   address: string | null;
+  phone: string | null;
   slotStepMinutes: number;
   minNoticeMinutes: number;
   bookingHorizonDays: number;

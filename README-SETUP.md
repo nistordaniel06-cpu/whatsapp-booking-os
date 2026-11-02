@@ -18,7 +18,7 @@ select id, '<YOUR-USER-ID>', 'owner' from salons where name = '<SALON NAME>';
 ## 3. Salon data
 Staff, services and working hours must exist (`/pro/hours` manages hours). Optional settings:
 ```sql
-update salons set address = 'Str. ..., Oraș', slot_step_minutes = 15, min_notice_minutes = 60,
+update salons set address = 'Str. ..., Oraș', phone = '+40 7xx xxx xxx', slot_step_minutes = 15, min_notice_minutes = 60,
   booking_horizon_days = 14, cancel_notice_minutes = 120 where name = '<SALON NAME>';
 ```
 

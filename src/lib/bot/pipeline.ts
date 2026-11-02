@@ -47,11 +47,17 @@ export async function processInbound(
 
   await deps.store.saveState(conv.id, result.state, result.handoff ? new Date(now.getTime() + HUMAN_MODE_HOURS * 3600000) : undefined);
   for (const reply of result.replies) {
-    let sent: {id: string | null; error?: string};
-    try { sent = await deps.send(msg.phoneNumberId, msg.from, reply); }
-    catch (e) { sent = {id: null, error: e instanceof Error ? e.message : "send failed"}; }
+    // One immediate retry covers transient network/Graph errors. A durable outbox with scheduled
+    // retries arrives with the notification job queue (V7).
+    let sent = await trySend(deps.send, msg.phoneNumberId, msg.from, reply);
+    if (sent.error) sent = await trySend(deps.send, msg.phoneNumberId, msg.from, reply);
     await deps.store.recordOutbound(salonId, conv.id, reply, sent.id, sent.error);
     if (sent.error) break; // keep order: don't send later messages if an earlier one failed
   }
   return "replied";
+}
+
+async function trySend(send: Sender, phoneNumberId: string, to: string, reply: Outbound): Promise<{id: string | null; error?: string}> {
+  try { return await send(phoneNumberId, to, reply); }
+  catch (e) { return {id: null, error: e instanceof Error ? e.message : "send failed"}; }
 }

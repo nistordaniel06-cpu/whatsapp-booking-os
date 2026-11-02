@@ -3,6 +3,7 @@ import {processInbound, type Conversation, type ConversationStore} from "../src/
 import type {BookingRepo} from "../src/lib/bot/types";
 import type {Outbound} from "../src/lib/whatsapp/messages";
 import type {InboundMessage} from "../src/lib/whatsapp/webhook";
+import type {Sender} from "../src/lib/whatsapp/send";
 
 const SALON = "11111111-1111-1111-1111-111111111111";
 const ANDREI = "22222222-2222-2222-2222-222222222222";
@@ -23,15 +24,16 @@ function world() {
   const repo: BookingRepo = {
     async getCatalog() {
       return {
-        salon: {id: SALON, name: "4MEN", timezone: "Europe/Bucharest", address: "Str. Exemplu 1", slotStepMinutes: 30, minNoticeMinutes: 60, bookingHorizonDays: 7, cancelNoticeMinutes: 120},
+        salon: {id: SALON, name: "4MEN", timezone: "Europe/Bucharest", address: "Str. Exemplu 1", phone: "+40 700 000 000", slotStepMinutes: 30, minNoticeMinutes: 60, bookingHorizonDays: 7, cancelNoticeMinutes: 120},
         services: [{id: TUNS, name: "Tuns", durationMinutes: 30, priceRon: 60}],
         staff: [{id: ANDREI, name: "Andrei", serviceIds: null}, {id: DANIEL, name: "Daniel", serviceIds: null}],
       };
     },
-    async getSchedule(_s, staffIds) {
+    async getSchedule(_s, staffIds, from, to) {
       return {
         hours: staffIds.flatMap(id => [1, 2, 3, 4, 5].map(weekday => ({staffId: id, weekday, start: "10:00", end: "18:00"}))),
-        busy: bookings.filter(b => b.status === "confirmed").map(b => ({staffId: b.staffId, start: b.start, end: b.end})),
+        // Same window filter as the Supabase query, so a too-narrow window shows up in tests.
+        busy: bookings.filter(b => b.status === "confirmed" && b.start < to && b.end > from).map(b => ({staffId: b.staffId, start: b.start, end: b.end})),
       };
     },
     async book(i) {
@@ -71,14 +73,15 @@ function world() {
   };
   let keyN = 0;
   let msgN = 0;
-  const send = async (_pn: string, _to: string, m: Outbound) => { sent.push(m); return {id: "out." + sent.length}; };
+  let send: Sender = async (_pn, _to, m) => { sent.push(m); return {id: "out." + sent.length}; };
+  const setSend = (fn: Sender) => { send = fn; };
   async function say(input: InboundMessage["input"], opts: {id?: string; from?: string; now?: Date} = {}) {
     sent.length = 0;
     const msg: InboundMessage = {waMessageId: opts.id ?? `wamid.${++msgN}`, phoneNumberId: "PN1", from: opts.from ?? PHONE, profileName: "Ion Popescu", timestamp: 0, input};
     const r = await processInbound(msg, {store, repo, send, now: opts.now ?? NOW, newKey: () => `key-${++keyN}`});
     return {r, out: [...sent]};
   }
-  return {say, bookings, convs};
+  return {say, bookings, convs, repo, setSend};
 }
 
 const reply = (id: string) => ({kind: "reply" as const, id});
@@ -163,12 +166,41 @@ describe("WhatsApp booking flow", () => {
     expect(w.bookings[0].status).toBe("cancelled");
   });
 
-  it("hands off to a human and stays silent until the window ends", async () => {
+  it("points to the salon phone for a human and keeps the bot active (no staff inbox yet)", async () => {
     const {out} = await w.say({kind: "text", text: "vreau sa vorbesc cu un om"});
-    expect(out[0]).toMatchObject({kind: "text", body: expect.stringContaining("coleg")});
-    expect((await w.say({kind: "text", text: "alo?"})).r).toBe("human_mode");
-    const later = new Date(NOW.getTime() + 13 * 3600000);
-    expect((await w.say({kind: "text", text: "salut"}, {now: later})).r).toBe("replied");
+    expect(out[0]).toMatchObject({kind: "buttons", body: expect.stringContaining("+40 700 000 000")});
+    expect(out[0].kind === "buttons" && out[0].body).not.toMatch(/am anuntat|am anunțat/i);
+    expect((await w.say({kind: "text", text: "alo?"})).r).toBe("replied");
+  });
+
+  it("does not offer slots already booked on a day far ahead", async () => {
+    // Monday 9 Nov, 10:00 local, booked by someone else
+    const farSlot = `slot:${TUNS}:${ANDREI}:${Math.round(new Date("2026-11-09T08:00:00Z").getTime() / 60000)}`;
+    await w.say(reply(farSlot), {from: "+40711111111"});
+    await w.say(reply("ok"), {from: "+40711111111"});
+    expect(w.bookings).toHaveLength(1);
+    const {out} = await w.say(reply(`day:${TUNS}:${ANDREI}:2026-11-09`));
+    expect(rowsOf(out[0])[0].title).toBe("10:30");
+  });
+
+  it("paginates services beyond the WhatsApp ten-row limit", async () => {
+    const many = Array.from({length: 12}, (_, i) => ({id: `00000000-0000-0000-0000-0000000000${String(i).padStart(2, "0")}`, name: `Serviciu ${i}`, durationMinutes: 30, priceRon: 0}));
+    const orig = w.repo.getCatalog;
+    w.repo.getCatalog = async (s) => ({...(await orig(s)), services: many});
+    let {out} = await w.say({kind: "text", text: "programare"});
+    let rows = rowsOf(out[0]);
+    expect(rows).toHaveLength(10);
+    expect(rows.at(-1)).toMatchObject({id: "svcs:9", title: "Alte servicii →"});
+    ({out} = await w.say(reply("svcs:9")));
+    rows = rowsOf(out[0]);
+    expect(rows.map(r => r.title)).toEqual(["Serviciu 9", "Serviciu 10", "Serviciu 11"]);
+  });
+
+  it("retries a failed send once before giving up", async () => {
+    let calls = 0;
+    w.setSend(async () => (++calls === 1 ? {id: null, error: "HTTP 500"} : {id: "ok"}));
+    await w.say({kind: "text", text: "Salut"});
+    expect(calls).toBe(2);
   });
 
   it("never offers a slot the client did not get from the database", async () => {

@@ -66,6 +66,7 @@ export async function handleMessage(ctx: BotContext, repo: BookingRepo): Promise
     const id = input.id;
     let m: RegExpMatchArray | null;
     if (id === "menu:book") return flow.services();
+    if ((m = id.match(/^svcs:(\d+)$/))) return flow.services(Number(m[1]));
     if (id === "menu:mine") return flow.mine();
     if (id === "menu:human") return flow.handoff();
     if (id === "menu") return flow.menu();
@@ -122,8 +123,16 @@ class Flow {
     return this.idle([{kind: "buttons", body: lines.join("\n"), buttons: [{id: "menu:book", title: "📅 Programare nouă"}, {id: "menu:human", title: "💬 Vorbește cu noi"}]}]);
   }
 
+  /**
+   * There is no staff inbox yet, so the bot must not claim that someone was notified, and it stays
+   * active. When the inbox exists (V4/V9), return `{handoff: true}` here to pause the bot.
+   */
   handoff(): BotResult {
-    return this.idle([{kind: "text", body: "Am anunțat echipa salonului. Un coleg îți va răspunde aici cât de curând. 🙏"}], {handoff: true});
+    const body = this.salon.phone
+      ? `Pentru a vorbi cu cineva din echipa ${this.salon.name}, te rog să ne suni la ${this.salon.phone}. 📞`
+      : `Pentru a vorbi cu cineva din echipa ${this.salon.name}, te rog să ne contactezi direct la salon.`;
+    return this.idle([{kind: "buttons", body: body + "\n\nTe pot ajuta și eu cu o programare:", buttons: [
+      {id: "menu:book", title: "📅 Programare nouă"}, {id: "menu:mine", title: "🗂 Programările mele"}]}]);
   }
 
   private service(id: string) { return this.services_.find(s => s.id === id); }
@@ -134,10 +143,14 @@ class Flow {
   }
   private price(s: ServiceInfo) { return s.priceRon > 0 ? ` · ${s.priceRon.toLocaleString("ro-RO")} lei` : ""; }
 
-  services(): BotResult {
+  services(offset = 0): BotResult {
     if (this.services_.length === 0) return this.handoff();
-    return this.idle([{kind: "list", body: "Ce serviciu dorești?", button: "Alege serviciul",
-      rows: this.services_.slice(0, 10).map(s => ({id: `svc:${s.id}`, title: s.name, description: `${s.durationMinutes} min${this.price(s)}`}))}]);
+    const page = this.services_.slice(offset, offset + PAGE);
+    if (page.length === 0) return this.services(0);
+    const rows: {id: string; title: string; description?: string}[] = page.map(s => ({id: `svc:${s.id}`, title: s.name, description: `${s.durationMinutes} min${this.price(s)}`}));
+    const rest = this.services_.length - offset - PAGE;
+    if (rest > 0) rows.push({id: `svcs:${offset + PAGE}`, title: "Alte servicii →", description: `încă ${rest}`});
+    return this.idle([{kind: "list", body: offset ? "Alte servicii:" : "Ce serviciu dorești?", button: "Alege serviciul", rows}]);
   }
 
   async staffFor(serviceId: string): Promise<BotResult> {
@@ -156,8 +169,10 @@ class Flow {
     const people = this.eligible(serviceId, staffId);
     if (!svc || people.length === 0 || days.length === 0) return [];
     const ids = people.map(p => p.id);
-    const from = new Date(this.ctx.now.getTime() - 86400000);
-    const to = new Date(this.ctx.now.getTime() + (days.length + 2) * 86400000);
+    // Window covers every requested local day with a ±1 day margin for the timezone offset.
+    const sorted = [...days].sort();
+    const from = new Date(Date.parse(sorted[0] + "T00:00:00Z") - 86400000);
+    const to = new Date(Date.parse(sorted[sorted.length - 1] + "T00:00:00Z") + 2 * 86400000);
     const {hours, busy} = await this.repo.getSchedule(this.salon.id, ids, from, to);
     const slots = computeSlots({
       tz: this.salon.timezone, days, durationMinutes: svc.durationMinutes, stepMinutes: this.salon.slotStepMinutes,
