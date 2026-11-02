@@ -7,22 +7,33 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint:types": "tsc --noEmit",
+    "ci": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "@supabase/supabase-js": "^2.57.0",
     "zod": "^4.1.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
+    "@electric-sql/pglite": "^0.5.14",
+    "@tailwindcss/postcss": "^4.1.0",
     "@types/node": "^22.18.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "tailwindcss": "^4.1.0",
-    "@tailwindcss/postcss": "^4.1.0",
+    "typescript": "^5.9.0",
     "vitest": "^3.2.0"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.32"
+    }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
