@@ -3,7 +3,7 @@ import {useState} from "react";
 import Link from "next/link";
 import {supabaseBrowser} from "@/lib/supabase-browser";
 export default function Login(){
- const [email,setEmail]=useState("business.nistor@gmail.com");
+ const [email,setEmail]=useState("");
  const [password,setPassword]=useState("");
  const [message,setMessage]=useState("");
  const [busy,setBusy]=useState(false);
